@@ -1,0 +1,15 @@
+// Fluxograma da Campanha Q3_BoasVindas
+digraph {
+	graph [bgcolor="#F5F5F5" rankdir=TB splines=ortho]
+	node [fillcolor="#FFFFFF" fontname=Helvetica shape=box style="rounded,filled"]
+	edge [fontname=Helvetica fontsize=10]
+	inicio_0 [label="Nova Consultora Cadastrada" fillcolor="#C8E6C9" shape=circle]
+	etapa_1 [label="Enviar E-mail de Boas Vindas" fillcolor="#BBDEFB" shape=box]
+	decisao_2 [label="E-mail foi aberto em 48h?" fillcolor="#FFF9C4" shape=diamond]
+	etapa_3 [label="Enviar SMS com Link para o App" fillcolor="#BBDEFB" shape=box]
+	etapa_4 [label="Adicionar à lista de \"Engajadas\"" fillcolor="#BBDEFB" shape=box]
+	etapa_5 [label="Reenviar E-mail com Título Diferente" fillcolor="#BBDEFB" shape=box]
+	decisao_6 [label="Abriu o segundo E-mail?" fillcolor="#FFF9C4" shape=diamond]
+	etapa_7 [label="Ligar para a Consultora" fillcolor="#BBDEFB" shape=box]
+	fim_8 [label="Fim do Fluxo de Boas Vindas" fillcolor="#FFCDD2" shape=doublecircle]
+}
