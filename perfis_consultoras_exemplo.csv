@@ -1,9 +1,26 @@
-id_consultora,regiao,vendas_ultimo_ciclo,taxa_engajamento,meses_de_casa
-1001,Sudeste,1250.50,85,24
-1002,Nordeste,850.00,45,6
-1003,Sudeste,2100.75,95,36
-1004,Norte,450.20,25,3
-1005,Sul,1500.00,70,18
-1006,Nordeste,980.80,55,12
-1007,Centro-Oeste,730.00,35,8
-1008,Sudeste,1850.90,90,30
+id_consultora,nome_consultora,regiao,nivel_consultora,meses_de_casa,vendas_ultimo_ciclo,taxa_engajamento,categoria_preferida
+2001,Ana Silva,Sudeste,Ouro,24,2850.50,92,Perfumaria
+2002,Bruno Costa,Nordeste,Prata,12,1550.00,65,Cuidados Diários
+2003,Carla Dias,Sudeste,Diamante,36,4100.75,98,Maquiagem
+2004,Daniel Farias,Norte,Semente,3,450.20,25,Cuidados Diários
+2005,Elisa Gomes,Sul,Ouro,18,2500.00,85,Perfumaria
+2006,Fábio Lima,Nordeste,Prata,14,1980.80,72,Maquiagem
+2007,Gabriela Melo,Centro-Oeste,Bronze,8,930.00,45,Cuidados Diários
+2008,Heitor Barros,Sudeste,Diamante,30,3850.90,95,Perfumaria
+2009,Íris Nogueira,Sul,Prata,11,1480.00,68,Maquiagem
+2010,João Mendes,Sudeste,Semente,2,320.00,15,Cuidados Diários
+2011,Laura Martins,Nordeste,Bronze,7,880.50,55,Perfumaria
+2012,Márcio Viana,Norte,Ouro,28,3100.00,90,Maquiagem
+2013,Natália Rocha,Sul,Diamante,40,4550.20,99,Cuidados Diários
+2014,Otávio Reis,Centro-Oeste,Prata,15,1620.00,75,Perfumaria
+2015,Patrícia Souza,Sudeste,Bronze,5,750.80,38,Maquiagem
+2016,Ricardo Alves,Nordeste,Ouro,22,2650.00,88,Cuidados Diários
+2017,Sandra Neves,Sul,Semente,1,250.70,10,Perfumaria
+2018,Tiago Pires,Sudeste,Prata,13,1750.90,78,Maquiagem
+2019,Úrsula Bastos,Centro-Oeste,Bronze,9,1100.00,60,Cuidados Diários
+2020,Victor Cruz,Norte,Prata,16,1800.40,81,Perfumaria
+2021,Yasmin Azevedo,Sudeste,Diamante,48,5200.00,99,Maquiagem
+2022,William Borges,Sul,Ouro,25,2950.50,94,Cuidados Diários
+2023,Xena Santos,Nordeste,Semente,4,510.10,28,Perfumaria
+2024,Zélia Ferreira,Centro-Oeste,Prata,10,1350.60,66,Maquiagem
+2025,André Bastos,Sudeste,Bronze,6,815.00,42,Cuidados Diários
