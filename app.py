@@ -1,176 +1,689 @@
+
+
+
 import streamlit as st
 import pandas as pd
-import graphviz
+import yaml
 import re
 from io import StringIO
+import base64
 
 # ==============================================================================
-# FUNÇÕES DE SIMULAÇÃO (Inalteradas)
+# DADOS SINTÉTICOS E EXEMPLO YAML (CARREGADOS NA INICIALIZAÇÃO)
 # ==============================================================================
-def simular_organizador_de_contexto(diretrizes, planos_anteriores):
-    if not diretrizes and not planos_anteriores: return "Aguardando input..."
-    info = "### Informações de Negócio Relevantes\n\n"
-    if diretrizes: info += f"**Diretrizes:**\n- Foco em sustentabilidade e inovação.\n"
-    if planos_anteriores: info += f"**Aprendizados:**\n- SMS tem alta conversão para o público jovem.\n"
-    return info
+def carregar_dados_iniciais():
+    """Carrega todos os dados da demonstração na sessão do Streamlit."""
+    if 'df_perfis' not in st.session_state:
+        csv_data = """id_consultora,nome_consultora,regiao,nivel_consultora,meses_de_casa,vendas_ultimo_ciclo,taxa_engajamento,categoria_preferida
+2001,Ana Silva,Sudeste,Ouro,24,2850.50,92,Perfumaria
+2002,Bruno Costa,Nordeste,Prata,12,1550.00,65,Cuidados Diários
+2003,Carla Dias,Sudeste,Diamante,36,4100.75,98,Maquegem
+2004,Daniel Farias,Norte,Semente,3,450.20,25,Cuidados Diários
+"""
+        st.session_state['df_perfis'] = pd.read_csv(StringIO(csv_data))
+    if 'diretrizes_cpb' not in st.session_state:
+        st.session_state['diretrizes_cpb'] = "Tema do ciclo: Reconexão com a natureza e os sentidos. Mensagem central: 'Redescubra sua essência com Ekos'. Objetivo: Aumentar recompra da linha Ekos em 20%."
+    if 'insights_anteriores' not in st.session_state:
+        st.session_state['insights_anteriores'] = "Análise do ciclo anterior: WhatsApp teve conversão 4,7% em recompra. ROI da linha Ekos foi de 5,3x. Consultoras com mais de 3 interações convertem 2,4x mais."
+    if 'processo_yaml_str' not in st.session_state:
+        st.session_state.processo_yaml_str = """
+pools:
+  pool_ciclo_11:
+    name: Campanha Ekos Essência da Amazônia
+    processRef: Process_Ekos
+    lanes:
+      lane_estrategia: Estratégia e Análise
+      lane_ativacao: Ativação de Canais
+      lane_stakeholders: Validação
+elements:
+  - {id: start_ciclo, name: Início do Ciclo 11/2025, type: startEvent, lane: lane_estrategia, content: 'Planejamento de CRM.'}
+  - {id: task_segmentar, name: Definir Segmentos, type: serviceTask, lane: lane_estrategia, content: 'Cluster 1 (Frequentes) e Cluster 2 (Reativáveis)'}
+  - {id: gw_paralelo_inicio, name: Iniciar Ativação, type: parallelGateway, lane: lane_ativacao}
+  - {id: task_app, name: Disparar Push no App, type: serviceTask, lane: lane_ativacao, content: 'Cluster 1 → Mensagem A'}
+  - {id: task_whatsapp, name: Disparar WhatsApp, type: serviceTask, lane: lane_ativacao, content: 'Cluster 2 → Mensagem B'}
+  - {id: gw_paralelo_fim, name: Aguardar Disparos, type: parallelGateway, lane: lane_ativacao}
+  - {id: task_validar, name: Validar com Stakeholders, type: userTask, lane: lane_stakeholders, content: 'Ajuste: Incluir opt-out.'}
+  - {id: end_campanha, name: Fim do Planejamento, type: endEvent, lane: lane_stakeholders}
+flows:
+  - {id: f1, source: start_ciclo, target: task_segmentar}
+  - {id: f2, source: task_segmentar, target: gw_paralelo_inicio}
+  - {id: f3, source: gw_paralelo_inicio, target: task_app}
+  - {id: f4, source: gw_paralelo_inicio, target: task_whatsapp}
+  - {id: f5, source: task_app, target: gw_paralelo_fim}
+  - {id: f6, source: task_whatsapp, target: gw_paralelo_fim}
+  - {id: f7, source: gw_paralelo_fim, target: task_validar}
+  - {id: f8, source: task_validar, target: end_campanha}
+"""
 
+# ==============================================================================
+# FUNÇÕES DOS AGENTES E DE GERAÇÃO
+# ==============================================================================
+def simular_organizador_de_contexto(diretrizes, insights):
+    return f"""### Informações de Negócio Relevantes:\n* **Tema do ciclo:** {diretrizes.split(".")[0]}.\n* **Mensagem central:** {diretrizes.split(".")[1]}.\n* **Canal Prioritário (Insight):** {insights.split(".")[0]}."""
 def simular_especialista_de_dados(df):
-    if df is None: return "Aguardando carregamento dos dados..."
-    media_vendas = df['vendas_ultimo_ciclo'].mean()
-    media_engajamento = df['taxa_engajamento'].mean()
-    direcional = f"### Direcional de Performance\n- **Média de Vendas:** R$ {media_vendas:.2f}\n- **Média de Engajamento:** {media_engajamento:.1f}%"
-    return direcional
+    media_vendas = df['vendas_ultimo_ciclo'].mean(); media_engajamento = df['taxa_engajamento'].mean()
+    return f"""### Direcional de Performance Detalhado:\n* **Média de Vendas (Base Atual):** R$ {media_vendas:.2f}\n* **Média de Engajamento (Base Atual):** {media_engajamento:.1f}%"""
 
-# ##############################################################################
-# ATUALIZAÇÃO FINAL E DEFINITIVA: REMOÇÃO DA BIBLIOTECA EXTERNA
-# E CRIAÇÃO DE UMA FUNÇÃO DE GERAÇÃO DE XML NATIVA
-# ##############################################################################
-def gerar_modelo_bpmn_xml(id_campanha, etapas, conexoes):
-    """Gera uma string XML de um modelo BPMN 2.0 válido."""
-    process_id = f"Process_{id_campanha}"
-    
-    # Cabeçalho padrão do XML BPMN
-    xml_parts = [
+def gerar_modelo_bpmn_xml_com_lanes(id_campanha, processo_yaml):
+    # Função de geração de XML (sem alterações)
+    collaboration_id = f"Collaboration_{id_campanha}"; xml_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">',
-        f'  <bpmn:process id="{process_id}" isExecutable="false">'
+        f'  <bpmn:collaboration id="{collaboration_id}">'
     ]
-
-    # Dicionário para mapear nomes de etapas para IDs BPMN
-    element_map = {nome: f"bpmn_{attrs['id']}" for nome, attrs in etapas.items()}
-
-    # Adicionar elementos do processo (eventos, tarefas, gateways)
-    for nome, attrs in etapas.items():
-        bpmn_id = element_map[nome]
-        tipo = attrs.get('tipo', 'ETAPA')
-        if tipo == 'INÍCIO':
-            xml_parts.append(f'    <bpmn:startEvent id="{bpmn_id}" name="{nome}" />')
-        elif tipo == 'FIM':
-            xml_parts.append(f'    <bpmn:endEvent id="{bpmn_id}" name="{nome}" />')
-        elif tipo == 'DECISÃO':
-            xml_parts.append(f'    <bpmn:exclusiveGateway id="{bpmn_id}" name="{nome}" />')
-        else: # ETAPA
-            xml_parts.append(f'    <bpmn:task id="{bpmn_id}" name="{nome}" />')
-
-    # Adicionar fluxos de sequência (conexões)
-    for i, conexao in enumerate(conexoes):
-        origem_id = element_map.get(conexao['origem'])
-        destino_id = element_map.get(conexao['destino'])
-        if origem_id and destino_id:
-            flow_id = f"Flow_{i}"
-            nome_fluxo = conexao.get('rotulo', '')
-            xml_parts.append(f'    <bpmn:sequenceFlow id="{flow_id}" name="{nome_fluxo}" sourceRef="{origem_id}" targetRef="{destino_id}" />')
-
-    xml_parts.append('  </bpmn:process>')
-    
-    # Adicionar a parte de diagrama (BPMNDI) para visualização
-    xml_parts.append(f'  <bpmndi:BPMNDiagram id="BPMNDiagram_1"><bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{process_id}">')
-    x, y = 150, 200
-    for nome, attrs in etapas.items():
-        bpmn_id = element_map[nome]
-        tipo = attrs.get('tipo', 'ETAPA')
-        height, width = (36, 36) if tipo in ['INÍCIO', 'FIM'] else (50, 50) if tipo == 'DECISÃO' else (80, 100)
-        xml_parts.append(f'    <bpmndi:BPMNShape id="{bpmn_id}_di" bpmnElement="{bpmn_id}"><dc:Bounds x="{x}" y="{y - height/2}" width="{width}" height="{height}" /></bpmndi:BPMNShape>')
-        x += 180
-    
-    for i, conexao in enumerate(conexoes):
-        origem_id = element_map.get(conexao['origem'])
-        destino_id = element_map.get(conexao['destino'])
-        if origem_id and destino_id:
-            flow_id = f"Flow_{i}"
-            xml_parts.append(f'    <bpmndi:BPMNEdge id="{flow_id}_di" bpmnElement="{flow_id}"><di:waypoint x="0" y="0" /><di:waypoint x="0" y="0" /></bpmndi:BPMNEdge>')
-            
-    xml_parts.append('  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>')
+    main_process_id = ""
+    for pool_id, pool_data in processo_yaml.get('pools', {}).items():
+        process_ref = pool_data['processRef'];
+        if not main_process_id: main_process_id = process_ref
+        xml_parts.append(f'    <bpmn:participant id="{pool_id}" name="{pool_data["name"]}" processRef="{process_ref}" />')
+    xml_parts.append('  </bpmn:collaboration>')
+    for pool_id, pool_data in processo_yaml.get('pools', {}).items():
+        process_id = pool_data['processRef']
+        xml_parts.append(f'  <bpmn:process id="{process_id}" isExecutable="true">'); xml_parts.append('      <bpmn:laneSet>')
+        for lane_id, lane_name in pool_data.get('lanes', {}).items():
+            xml_parts.append(f'        <bpmn:lane id="{lane_id}" name="{lane_name}">')
+            for el in processo_yaml.get('elements', []):
+                if el['lane'] == lane_id: xml_parts.append(f'          <bpmn:flowNodeRef>{el["id"]}</bpmn:flowNodeRef>')
+            xml_parts.append('        </bpmn:lane>')
+        xml_parts.append('      </bpmn:laneSet>')
+        for el in processo_yaml.get('elements', []):
+            if el['lane'] in pool_data.get('lanes', {}):
+                el_id, el_name, el_type = el['id'], el['name'], el.get('type', 'task')
+                doc_text = el.get('content', ''); doc_xml = f'<bpmn:documentation>{doc_text}</bpmn:documentation>' if doc_text else ''
+                tag = el_type if 'Task' in el_type or 'Gateway' in el_type or 'Event' in el_type else 'task'
+                xml_parts.append(f'    <bpmn:{tag} id="{el_id}" name="{el_name}">{doc_xml}</bpmn:{tag}>')
+        for flow in processo_yaml.get('flows', []): xml_parts.append(f'    <bpmn:sequenceFlow id="{flow["id"]}" name="{flow.get("name", "")}" sourceRef="{flow["source"]}" targetRef="{flow["target"]}" />')
+        xml_parts.append('  </bpmn:process>')
+    xml_parts.append(f'<bpmndi:BPMNDiagram id="BPMNDiagram_1"><bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{collaboration_id}"></bpmndi:BPMNPlane></bpmndi:BPMNDiagram>')
     xml_parts.append('</bpmn:definitions>')
-    
     return '\n'.join(xml_parts)
 
-def gerar_visualizacao_bpmn(id_campanha, etapas, conexoes):
-    """Gera um objeto Graphviz para visualização no Streamlit."""
-    dot = graphviz.Digraph(f'visualizacao_{id_campanha}', graph_attr={'rankdir': 'LR', 'splines': 'ortho', 'bgcolor': 'transparent'})
-    estilos_visuais = {
-        'INÍCIO': {'shape': 'circle', 'style': 'filled', 'fillcolor': '#C8E6C9', 'penwidth': '1.5'},
-        'FIM': {'shape': 'doublecircle', 'style': 'filled', 'fillcolor': '#FFCDD2', 'penwidth': '2'},
-        'ETAPA': {'shape': 'box', 'style': 'rounded,filled', 'fillcolor': '#BBDEFB'},
-        'DECISÃO': {'shape': 'diamond', 'style': 'filled', 'fillcolor': '#FFF9C4', 'width': '1.5', 'height': '1.5'},
-        'DEFAULT': {'shape': 'box', 'style': 'rounded,filled', 'fillcolor': '#E0E0E0'}
-    }
-    for nome, attrs in etapas.items():
-        dot.node(attrs['id'], nome, **estilos_visuais.get(attrs['tipo'], estilos_visuais['DEFAULT']))
-    for conexao in conexoes:
-        id_origem, id_destino = etapas.get(conexao['origem'], {}).get('id'), etapas.get(conexao['destino'], {}).get('id')
-        if id_origem and id_destino:
-            dot.edge(id_origem, id_destino, label=conexao['rotulo'])
-    return dot
+def renderizar_bpmn_com_js(bpmn_xml_string):
+    # Função de renderização com exportação para SVG (sem alterações)
+    escaped_bpmn_xml = bpmn_xml_string.replace("`", "\\`").replace("'", "\\'").replace("\n", " ")
+    html_content = f"""
+    <!DOCTYPE html><html><head><title>BPMN Viewer</title><script src="https://unpkg.com/bpmn-js@17.0.2/dist/bpmn-viewer.development.js"></script><style>html,body,#container{{height:100%;width:100%;margin:0;padding:0}}#container{{height:calc(100% - 40px);width:100%}}#export-button-wrapper{{height:40px;text-align:right;padding:5px;background-color:#f7f7f7;border-top:1px solid #ddd}}.bjs-powered-by{{display:none !important}}button{{background-color:#1976D2;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-family:sans-serif}}button:hover{{background-color:#1565C0}}</style></head><body><div id="container"></div><div id="export-button-wrapper"><button id="save-svg">Exportar como Imagem (SVG)</button></div><script>
+        var viewer = new BpmnJS({{container:'#container'}}); var bpmnXML=`{escaped_bpmn_xml}`;
+        async function openDiagram(xml){{try{{await viewer.importXML(xml);viewer.get('canvas').zoom('fit-viewport','auto')}}catch(err){{console.error(err)}}}}
+        async function exportSVG(){{try{{const{{svg}}=await viewer.saveSVG();const encodedData=encodeURIComponent(svg);const link=document.createElement('a');link.href='data:image/svg+xml;charset=UTF-8,'+encodedData;link.download='diagrama_bpmn.svg';document.body.appendChild(link);link.click();document.body.removeChild(link)}}catch(err){{console.error(err)}}}}
+        document.getElementById('save-svg').addEventListener('click',exportSVG);openDiagram(bpmnXML);
+    </script></body></html>"""
+    return html_content
+
+def processar_comando_chat(comando, yaml_str):
+    try:
+        data = yaml.safe_load(yaml_str); comando = comando.lower()
+        match_nome = re.search(r"mude o nome da tarefa '(.+?)' para '(.+?)'", comando)
+        if match_nome:
+            id_tarefa, novo_nome = match_nome.groups();
+            for el in data.get('elements', []):
+                if el['id'] == id_tarefa: el['name'] = novo_nome;
+            return yaml.dump(data, sort_keys=False, indent=2), f"✅ Nome da tarefa '{id_tarefa}' alterado."
+        return yaml_str, "❌ Comando não reconhecido."
+    except yaml.YAMLError as e: return yaml_str, f"❌ Erro no formato do YAML: {e}"
+
+# ##############################################################################
+# ATUALIZAÇÃO PRINCIPAL #1: Adicionada a função para converter DataFrame para CSV
+# ##############################################################################
+@st.cache_data
+def convert_df_to_csv(df):
+    """Converte um DataFrame para um arquivo CSV codificado em UTF-8 para download."""
+    return df.to_csv(index=False).encode('utf-8')
 
 # ==============================================================================
 # INTERFACE DA APLICAÇÃO
 # ==============================================================================
-st.title("🌿 Motor de Planejamento de Campanhas CRM")
-st.markdown("Protótipo funcional para automatizar a estratégia, o planejamento e a criação de campanhas de CRM.")
+st.set_page_config(layout="wide")
+st.title("Assistente de Planejamento de Campanhas CRM")
 
-if 'dados_carregados' not in st.session_state: st.session_state['dados_carregados'] = False
-if 'df_perfis' not in st.session_state: st.session_state['df_perfis'] = None
-if 'df_segmentado' not in st.session_state: st.session_state['df_segmentado'] = None
+carregar_dados_iniciais()
 
-tab1, tab2, tab3 = st.tabs(["📊 Fase 1: Fontes de Dados", "🧠 Fase 2: Processamento e Planejamento", "🚀 Fase 3: Outputs Finais"])
+tab1, tab2, tab3 = st.tabs(["**📊 Fase 1: Dados e Contexto**", "**⚙️ Fase 2: Análise e Segmentação**", "**✍️ Fase 3: Modelagem e Artefatos**"])
 
 with tab1:
-    # O código da Aba 1 permanece o mesmo
-    st.header("Carregue as Fontes de Dados"); col1, col2 = st.columns(2)
+    st.header("Entrada de Dados da Campanha")
+    col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Dados Estruturados"); uploaded_file = st.file_uploader("Carregue o arquivo de Perfil e Mensuração CB (CSV)", type="csv")
-        if uploaded_file or st.session_state['df_perfis'] is not None:
-            if uploaded_file: st.session_state['df_perfis'] = pd.read_csv(uploaded_file)
-            st.success("Dados de perfil carregados com sucesso!"); st.dataframe(st.session_state['df_perfis'].head())
+        st.subheader("Dados Estruturados")
+        uploaded_file = st.file_uploader("Carregar arquivo de Consultoras (CSV)", type="csv")
+        if uploaded_file is not None:
+            try:
+                st.session_state['df_perfis'] = pd.read_csv(uploaded_file)
+                st.success("Novo arquivo carregado com sucesso!")
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo: {e}")
+        st.info("Amostra dos Dados Atuais")
+        st.dataframe(st.session_state['df_perfis'])
+        
     with col2:
-        st.subheader("Dados Não Estruturados"); diretrizes_input = st.text_area("Cole aqui as Diretrizes de Comunicação", height=150, key="diretrizes"); planos_input = st.text_area("Cole aqui os insights de Planejamentos Anteriores", height=150, key="planos")
-    if st.button("▶️ Iniciar Processamento", type="primary"):
-        if st.session_state['df_perfis'] is None: st.error("Por favor, carregue o arquivo CSV.")
-        else: st.session_state['dados_carregados'] = True; st.success("Dados processados!")
+        st.subheader("Dados Não Estruturados")
+        st.info("Diretrizes da Campanha (CPB)")
+        
+        # CORREÇÃO: Removido o parâmetro 'value='
+        st.text_area(
+            "Edite as diretrizes:",
+            height=120,
+            key='diretrizes_cpb' 
+        )
+        
+        st.info("Insights de Ciclos Anteriores")
 
+        # CORREÇÃO: Removido o parâmetro 'value='
+        st.text_area(
+            "Edite os insights:",
+            height=120,
+            key='insights_anteriores'
+        )
 with tab2:
-    # O código da Aba 2 permanece o mesmo
-    if not st.session_state['dados_carregados']: st.warning("Por favor, carregue os dados na Fase 1 primeiro.")
+    st.header("Execução dos Agentes e Segmentação de Público")
+    if 'df_perfis' not in st.session_state:
+        st.warning("Carregue os dados na Fase 1 primeiro.")
     else:
-        st.header("Processamento e Planejamento"); 
-        with st.expander("📄 Organizador de Contexto", expanded=True): st.markdown(simular_organizador_de_contexto(st.session_state.diretrizes, st.session_state.planos))
-        with st.expander("📈 Especialista de Dados", expanded=True): st.markdown(simular_especialista_de_dados(st.session_state.df_perfis))
-        st.divider(); st.subheader("🎯 Seletor de Público"); df_para_filtrar = st.session_state.df_perfis.copy(); col_filtro1, col_filtro2 = st.columns(2)
-        with col_filtro1: regioes_disponiveis = df_para_filtrar['regiao'].unique(); regioes_selecionadas = st.multiselect("Filtrar por Região", regioes_disponiveis, default=regioes_disponiveis)
-        with col_filtro2: max_vendas = int(df_para_filtrar['vendas_ultimo_ciclo'].max()); filtro_vendas = st.slider("Filtrar por Vendas (R$)", 0, max_vendas, (0, max_vendas))
-        df_filtrado = df_para_filtrar[(df_para_filtrar['regiao'].isin(regioes_selecionadas)) & (df_para_filtrar['vendas_ultimo_ciclo'].between(filtro_vendas[0], filtro_vendas[1]))]
-        st.metric(label="Pessoas na Segmentação", value=len(df_filtrado)); st.dataframe(df_filtrado)
-        if st.button("💾 Salvar Segmentação"): st.session_state['df_segmentado'] = df_filtrado; st.success("Segmentação salva!")
-        if st.session_state['df_segmentado'] is not None:
-            st.subheader("📝 Planejador de Campanhas"); exemplo_logica = "INÍCIO: Início Campanha\nETAPA: Enviar E-mail\nDECISÃO: Abriu?\nETAPA: Enviar SMS [Sim]\nFIM: Fim Sucesso\nETAPA: Ligar [Não]\nFIM: Fim Falha\n\nCONEXÃO: Início Campanha -> Enviar E-mail\nCONEXÃO: Enviar E-mail -> Abriu?\nCONEXÃO: Abriu? -> Enviar SMS [Sim]\nCONEXÃO: Enviar SMS -> Fim Sucesso\nCONEXÃO: Abriu? -> Ligar [Não]\nCONEXÃO: Ligar -> Fim Falha"
-            st.session_state['logica_campanha'] = st.text_area("Lógica da Campanha:", value=exemplo_logica, height=250)
+        st.subheader("Resultados dos Agentes de Análise")
+        with st.expander("🤖 Agente: Organizador de Contexto", expanded=True):
+            st.markdown(simular_organizador_de_contexto(st.session_state.diretrizes_cpb, st.session_state.insights_anteriores))
+        with st.expander("🤖 Agente: Especialista de Dados", expanded=True):
+            st.markdown(simular_especialista_de_dados(st.session_state.df_perfis))
+        st.divider()
+        st.subheader("🎯 Agente: Seletor de Público Interativo")
+        df = st.session_state.df_perfis.copy(); col1, col2, col3 = st.columns(3)
+        with col1: sel_regioes = st.multiselect("Região:", df['regiao'].unique(), default=df['regiao'].unique())
+        with col2: sel_niveis = st.multiselect("Nível:", df['nivel_consultora'].unique(), default=df['nivel_consultora'].unique())
+        with col3: max_vendas = int(df['vendas_ultimo_ciclo'].max()) if not df.empty else 1000; sel_vendas = st.slider("Vendas (R$):", 0, max_vendas, (0, max_vendas))
+        df_filtrado = df[(df['regiao'].isin(sel_regioes))&(df['nivel_consultora'].isin(sel_niveis))&(df['vendas_ultimo_ciclo'].between(sel_vendas[0], sel_vendas[1]))]
+        st.metric("Total no Segmento", len(df_filtrado)); st.dataframe(df_filtrado)
+        if st.button("💾 Salvar Segmentação"):
+            st.session_state['df_segmentado'] = df_filtrado; st.success(f"{len(df_filtrado)} consultoras salvas. Prossiga para a Fase 3.")
 
 with tab3:
-    # O código da Aba 3 foi ajustado para usar as novas funções
-    st.header("Geração dos Artefatos Finais")
-    if 'logica_campanha' not in st.session_state or not st.session_state['logica_campanha']: st.warning("Defina a lógica da campanha na Fase 2.")
+    st.header("Modelagem do Processo e Geração de Artefatos")
+    if 'df_segmentado' not in st.session_state:
+        st.warning("Crie e salve um segmento na Fase 2 primeiro.")
     else:
-        if st.button("✨ Gerar Todos os Outputs", type="primary", use_container_width=True):
+        st.success(f"Modelando a estratégia para o segmento de **{len(st.session_state['df_segmentado'])}** consultoras.")
+        col1, col2 = st.columns([2, 3])
+        with col1:
+            st.subheader("Definição do Processo (YAML)")
+            yaml_editor = st.text_area("Edite o processo:", value=st.session_state.processo_yaml_str, height=500, key="yaml_editor_main")
+            st.session_state.processo_yaml_str = yaml_editor
+            st.subheader("💬 Chat de Refinamento")
+            comando = st.text_input("Seu comando:", placeholder="mude o nome da tarefa 'task_validar' para 'Revisão Final'")
+            if st.button("Executar Comando"):
+                if comando:
+                    novo_yaml, mensagem = processar_comando_chat(comando, st.session_state.processo_yaml_str)
+                    st.session_state.processo_yaml_str = novo_yaml
+                    st.success(mensagem) if "✅" in mensagem else st.warning(mensagem)
+                    st.experimental_rerun()
+        with col2:
+            st.subheader("Visualizador BPMN e Artefatos")
             try:
-                # Parsear a lógica uma vez
-                etapas, conexoes = {}, []
-                for i, linha in enumerate(st.session_state.logica_campanha.strip().split('\n')):
-                    linha = linha.strip();
-                    if not linha: continue;
-                    tipo_match = re.match(r"(\w+):(.+)", linha);
-                    conexao_match = re.match(r"CONEXÃO:\s*(.+?)\s*->\s*(.+?)(?:\s*\[(.+?)\])?", linha)
-                    if conexao_match: orig, dest, rot = conexao_match.groups(); conexoes.append({'origem': orig.strip(), 'destino': dest.strip(), 'rotulo': rot.strip() if rot else ''})
-                    elif tipo_match: tipo, nome = tipo_match.groups(); etapas[nome.strip()] = {'tipo': tipo.strip().upper(), 'id': f'id_{i}'}
-
-                # Gerar os dois outputs
-                visualizacao_dot = gerar_visualizacao_bpmn("campanha_natura", etapas, conexoes)
-                modelo_xml = gerar_modelo_bpmn_xml("campanha_natura", etapas, conexoes)
+                processo_yaml_obj = yaml.safe_load(st.session_state.processo_yaml_str)
+                modelo_xml = gerar_modelo_bpmn_xml_com_lanes("campanha_natura", processo_yaml_obj)
+                componente_html = renderizar_bpmn_com_js(modelo_xml)
+                st.components.v1.html(componente_html, height=550, scrolling=False)
                 
-                st.subheader("1. Visualização do Processo (Estilo BPMN)"); st.graphviz_chart(visualizacao_dot)
-                st.subheader("2. Modelo de Processo BPMN 2.0 (para Salesforce)"); st.success("Arquivo .bpmn gerado com sucesso!")
-                st.download_button(label="📥 Baixar Arquivo BPMN (.bpmn)", data=modelo_xml, file_name="processo_campanha.bpmn", mime="application/xml")
-                with st.expander("Ver código XML do modelo"): st.code(modelo_xml, language='xml')
                 st.divider()
-                st.subheader("3. Planilha com Estratégia de Audiência"); st.dataframe(st.session_state.df_segmentado)
-            except Exception as e: st.error(f"Ocorreu um erro: {e}")
+                st.subheader("Downloads")
+                
+                # Botão para baixar o modelo BPMN
+                st.download_button(label="📥 Baixar Modelo (.bpmn)", data=modelo_xml, file_name="processo_final.bpmn", mime="application/xml")
+                
+                # ##############################################################################
+                # ATUALIZAÇÃO PRINCIPAL #2: Restaurado o botão de download da planilha
+                # ##############################################################################
+                csv_data = convert_df_to_csv(st.session_state['df_segmentado'])
+                st.download_button(
+                   label="📊 Baixar Planilha de Audiência (.csv)",
+                   data=csv_data,
+                   file_name="audiencia_segmentada.csv",
+                   mime="text/csv",
+                )
+
+                with st.expander("Ver código XML do modelo"):
+                    st.code(modelo_xml, language='xml')
+
+            except yaml.YAMLError as e:
+                st.error(f"Erro na sintaxe do YAML: {e}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import streamlit as st
+# import pandas as pd
+# import yaml
+# import re
+# from io import StringIO
+# import base64
+
+# # ==============================================================================
+# # DADOS SINTÉTICOS E EXEMPLO YAML (CARREGADOS NA INICIALIZAÇÃO)
+# # ==============================================================================
+# def carregar_dados_iniciais():
+#     """Carrega todos os dados da demonstração na sessão do Streamlit."""
+#     if 'df_perfis' not in st.session_state:
+#         csv_data = """id_consultora,nome_consultora,regiao,nivel_consultora,meses_de_casa,vendas_ultimo_ciclo,taxa_engajamento,categoria_preferida
+# 2001,Ana Silva,Sudeste,Ouro,24,2850.50,92,Perfumaria
+# 2002,Bruno Costa,Nordeste,Prata,12,1550.00,65,Cuidados Diários
+# 2003,Carla Dias,Sudeste,Diamante,36,4100.75,98,Maquegem
+# 2004,Daniel Farias,Norte,Semente,3,450.20,25,Cuidados Diários
+# """
+#         st.session_state['df_perfis'] = pd.read_csv(StringIO(csv_data))
+    
+#     # Esta parte está correta: inicializa o estado se ele não existir.
+#     if 'diretrizes_cpb' not in st.session_state:
+#         st.session_state['diretrizes_cpb'] = "Tema do ciclo: Reconexão com a natureza e os sentidos. Mensagem central: 'Redescubra sua essência com Ekos'. Objetivo: Aumentar recompra da linha Ekos em 20%."
+#     if 'insights_anteriores' not in st.session_state:
+#         st.session_state['insights_anteriores'] = "Análise do ciclo anterior: WhatsApp teve conversão 4,7% em recompra. ROI da linha Ekos foi de 5,3x. Consultoras com mais de 3 interações convertem 2,4x mais."
+#     if 'processo_yaml_str' not in st.session_state:
+#         st.session_state.processo_yaml_str = """
+# pools:
+#   pool_ciclo_11:
+#     name: Campanha Ekos Essência da Amazônia
+#     processRef: Process_Ekos
+#     lanes:
+#       lane_estrategia: Estratégia e Análise
+#       lane_ativacao: Ativação de Canais
+#       lane_stakeholders: Validação
+# elements:
+#   - {id: start_ciclo, name: Início do Ciclo 11/2025, type: startEvent, lane: lane_estrategia, content: 'Planejamento de CRM.'}
+#   - {id: task_segmentar, name: Definir Segmentos, type: serviceTask, lane: lane_estrategia, content: 'Cluster 1 (Frequentes) e Cluster 2 (Reativáveis)'}
+#   - {id: gw_paralelo_inicio, name: Iniciar Ativação, type: parallelGateway, lane: lane_ativacao}
+#   - {id: task_app, name: Disparar Push no App, type: serviceTask, lane: lane_ativacao, content: 'Cluster 1 → Mensagem A'}
+#   - {id: task_whatsapp, name: Disparar WhatsApp, type: serviceTask, lane: lane_ativacao, content: 'Cluster 2 → Mensagem B'}
+#   - {id: gw_paralelo_fim, name: Aguardar Disparos, type: parallelGateway, lane: lane_ativacao}
+#   - {id: task_validar, name: Validar com Stakeholders, type: userTask, lane: lane_stakeholders, content: 'Ajuste: Incluir opt-out.'}
+#   - {id: end_campanha, name: Fim do Planejamento, type: endEvent, lane: lane_stakeholders}
+# flows:
+#   - {id: f1, source: start_ciclo, target: task_segmentar}
+#   - {id: f2, source: task_segmentar, target: gw_paralelo_inicio}
+#   - {id: f3, source: gw_paralelo_inicio, target: task_app}
+#   - {id: f4, source: gw_paralelo_inicio, target: task_whatsapp}
+#   - {id: f5, source: task_app, target: gw_paralelo_fim}
+#   - {id: f6, source: task_whatsapp, target: gw_paralelo_fim}
+#   - {id: f7, source: gw_paralelo_fim, target: task_validar}
+#   - {id: f8, source: task_validar, target: end_campanha}
+# """
+
+# # ==============================================================================
+# # FUNÇÕES DOS AGENTES E DE GERAÇÃO
+# # ==============================================================================
+# def simular_organizador_de_contexto(diretrizes, insights):
+#     return f"""### Informações de Negócio Relevantes:\n* **Tema do ciclo:** {diretrizes.split(".")[0]}.\n* **Mensagem central:** {diretrizes.split(".")[1]}.\n* **Canal Prioritário (Insight):** {insights.split(".")[0]}."""
+# def simular_especialista_de_dados(df):
+#     media_vendas = df['vendas_ultimo_ciclo'].mean(); media_engajamento = df['taxa_engajamento'].mean()
+#     return f"""### Direcional de Performance Detalhado:\n* **Média de Vendas (Base Atual):** R$ {media_vendas:.2f}\n* **Média de Engajamento (Base Atual):** {media_engajamento:.1f}%"""
+# def gerar_modelo_bpmn_xml_com_lanes(id_campanha, processo_yaml):
+#     collaboration_id = f"Collaboration_{id_campanha}"; xml_parts = ['<?xml version="1.0" encoding="UTF-8"?>','<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">',f'  <bpmn:collaboration id="{collaboration_id}">']
+#     main_process_id = ""
+#     for pool_id, pool_data in processo_yaml.get('pools', {}).items():
+#         process_ref = pool_data['processRef'];
+#         if not main_process_id: main_process_id = process_ref
+#         xml_parts.append(f'    <bpmn:participant id="{pool_id}" name="{pool_data["name"]}" processRef="{process_ref}" />')
+#     xml_parts.append('  </bpmn:collaboration>')
+#     for pool_id, pool_data in processo_yaml.get('pools', {}).items():
+#         process_id = pool_data['processRef']
+#         xml_parts.append(f'  <bpmn:process id="{process_id}" isExecutable="true">'); xml_parts.append('      <bpmn:laneSet>')
+#         for lane_id, lane_name in pool_data.get('lanes', {}).items():
+#             xml_parts.append(f'        <bpmn:lane id="{lane_id}" name="{lane_name}">')
+#             for el in processo_yaml.get('elements', []):
+#                 if el['lane'] == lane_id: xml_parts.append(f'          <bpmn:flowNodeRef>{el["id"]}</bpmn:flowNodeRef>')
+#             xml_parts.append('        </bpmn:lane>')
+#         xml_parts.append('      </bpmn:laneSet>')
+#         for el in processo_yaml.get('elements', []):
+#             if el['lane'] in pool_data.get('lanes', {}):
+#                 el_id, el_name, el_type = el['id'], el['name'], el.get('type', 'task')
+#                 doc_text = el.get('content', ''); doc_xml = f'<bpmn:documentation>{doc_text}</bpmn:documentation>' if doc_text else ''
+#                 tag = el_type if 'Task' in el_type or 'Gateway' in el_type or 'Event' in el_type else 'task'
+#                 xml_parts.append(f'    <bpmn:{tag} id="{el_id}" name="{el_name}">{doc_xml}</bpmn:{tag}>')
+#         for flow in processo_yaml.get('flows', []): xml_parts.append(f'    <bpmn:sequenceFlow id="{flow["id"]}" name="{flow.get("name", "")}" sourceRef="{flow["source"]}" targetRef="{flow["target"]}" />')
+#         xml_parts.append('  </bpmn:process>')
+#     xml_parts.append(f'<bpmndi:BPMNDiagram id="BPMNDiagram_1"><bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{collaboration_id}"></bpmndi:BPMNPlane></bpmndi:BPMNDiagram>')
+#     xml_parts.append('</bpmn:definitions>')
+#     return '\n'.join(xml_parts)
+# def renderizar_bpmn_com_js(bpmn_xml_string):
+#     escaped_bpmn_xml = bpmn_xml_string.replace("`", "\\`").replace("'", "\\'").replace("\n", " ")
+#     html_content = f"""<!DOCTYPE html><html><head><title>BPMN Viewer</title><script src="https://unpkg.com/bpmn-js@17.0.2/dist/bpmn-viewer.development.js"></script><style>html,body,#container{{height:100%;width:100%;margin:0;padding:0}}#container{{height:calc(100% - 40px);width:100%}}#export-button-wrapper{{height:40px;text-align:right;padding:5px;background-color:#f7f7f7;border-top:1px solid #ddd}}.bjs-powered-by{{display:none !important}}button{{background-color:#1976D2;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-family:sans-serif}}button:hover{{background-color:#1565C0}}</style></head><body><div id="container"></div><div id="export-button-wrapper"><button id="save-svg">Exportar como Imagem (SVG)</button></div><script>
+#         var viewer = new BpmnJS({{container:'#container'}}); var bpmnXML=`{escaped_bpmn_xml}`;
+#         async function openDiagram(xml){{try{{await viewer.importXML(xml);viewer.get('canvas').zoom('fit-viewport','auto')}}catch(err){{console.error(err)}}}}
+#         async function exportSVG(){{try{{const{{svg}}=await viewer.saveSVG();const encodedData=encodeURIComponent(svg);const link=document.createElement('a');link.href='data:image/svg+xml;charset=UTF-8,'+encodedData;link.download='diagrama_bpmn.svg';document.body.appendChild(link);link.click();document.body.removeChild(link)}}catch(err){{console.error(err)}}}}
+#         document.getElementById('save-svg').addEventListener('click',exportSVG);openDiagram(bpmnXML);
+#     </script></body></html>"""
+#     return html_content
+# def processar_comando_chat(comando, yaml_str):
+#     try:
+#         data = yaml.safe_load(yaml_str); comando = comando.lower()
+#         match_nome = re.search(r"mude o nome da tarefa '(.+?)' para '(.+?)'", comando)
+#         if match_nome:
+#             id_tarefa, novo_nome = match_nome.groups();
+#             for el in data.get('elements', []):
+#                 if el['id'] == id_tarefa: el['name'] = novo_nome;
+#             return yaml.dump(data, sort_keys=False, indent=2), f"✅ Nome da tarefa '{id_tarefa}' alterado."
+#         return yaml_str, "❌ Comando não reconhecido."
+#     except yaml.YAMLError as e: return yaml_str, f"❌ Erro no formato do YAML: {e}"
+
+# # ==============================================================================
+# # INTERFACE DA APLICAÇÃO
+# # ==============================================================================
+# st.set_page_config(layout="wide")
+# st.title("Assistente de Planejamento de Campanhas CRM")
+
+# carregar_dados_iniciais()
+
+# tab1, tab2, tab3 = st.tabs(["**📊 Fase 1: Dados e Contexto**", "**⚙️ Fase 2: Análise e Segmentação**", "**✍️ Fase 3: Modelagem e Artefatos**"])
+
+# with tab1:
+#     st.header("Entrada de Dados da Campanha")
+#     col1, col2 = st.columns(2)
+#     with col1:
+#         st.subheader("Dados Estruturados")
+#         uploaded_file = st.file_uploader("Carregar arquivo de Consultoras (CSV)", type="csv")
+#         if uploaded_file is not None:
+#             try:
+#                 st.session_state['df_perfis'] = pd.read_csv(uploaded_file); st.success("Novo arquivo carregado!")
+#             except Exception as e: st.error(f"Erro ao ler o arquivo: {e}")
+#         st.info("Amostra dos Dados Atuais"); st.dataframe(st.session_state['df_perfis'])
+#     with col2:
+#         st.subheader("Dados Não Estruturados")
+#         # ##############################################################################
+#         # ATUALIZAÇÃO PRINCIPAL AQUI: Removido o parâmetro 'value=' das chamadas
+#         # ##############################################################################
+#         st.text_area("Diretrizes da Campanha (CPB):", height=120, key='diretrizes_cpb')
+#         st.text_area("Insights de Ciclos Anteriores:", height=120, key='insights_anteriores')
+
+# with tab2:
+#     st.header("Execução dos Agentes e Segmentação de Público")
+#     if 'df_perfis' not in st.session_state:
+#         st.warning("Carregue os dados na Fase 1 primeiro.")
+#     else:
+#         st.subheader("Resultados dos Agentes de Análise")
+#         with st.expander("🤖 Agente: Organizador de Contexto", expanded=True):
+#             st.markdown(simular_organizador_de_contexto(st.session_state.diretrizes_cpb, st.session_state.insights_anteriores))
+#         with st.expander("🤖 Agente: Especialista de Dados", expanded=True):
+#             st.markdown(simular_especialista_de_dados(st.session_state.df_perfis))
+#         st.divider()
+#         st.subheader("🎯 Agente: Seletor de Público Interativo")
+#         df = st.session_state.df_perfis.copy(); col1, col2, col3 = st.columns(3)
+#         with col1: sel_regioes = st.multiselect("Região:", df['regiao'].unique(), default=df['regiao'].unique())
+#         with col2: sel_niveis = st.multiselect("Nível:", df['nivel_consultora'].unique(), default=df['nivel_consultora'].unique())
+#         with col3: max_vendas = int(df['vendas_ultimo_ciclo'].max()) if not df.empty else 1000; sel_vendas = st.slider("Vendas (R$):", 0, max_vendas, (0, max_vendas))
+#         df_filtrado = df[(df['regiao'].isin(sel_regioes))&(df['nivel_consultora'].isin(sel_niveis))&(df['vendas_ultimo_ciclo'].between(sel_vendas[0], sel_vendas[1]))]
+#         st.metric("Total no Segmento", len(df_filtrado)); st.dataframe(df_filtrado)
+#         if st.button("💾 Salvar Segmentação"):
+#             st.session_state['df_segmentado'] = df_filtrado; st.success(f"{len(df_filtrado)} consultoras salvas. Prossiga para a Fase 3.")
+
+# with tab3:
+#     st.header("Modelagem do Processo e Geração de Artefatos")
+#     if 'df_segmentado' not in st.session_state:
+#         st.warning("Crie e salve um segmento na Fase 2 primeiro.")
+#     else:
+#         st.success(f"Modelando a estratégia para o segmento de **{len(st.session_state['df_segmentado'])}** consultoras.")
+#         col1, col2 = st.columns([2, 3])
+#         with col1:
+#             st.subheader("Definição do Processo (YAML)")
+#             yaml_editor = st.text_area("Edite o processo:", value=st.session_state.processo_yaml_str, height=500, key="yaml_editor_main")
+#             st.session_state.processo_yaml_str = yaml_editor
+#             st.subheader("💬 Chat de Refinamento")
+#             comando = st.text_input("Seu comando:", placeholder="mude o nome da tarefa 'task_validar' para 'Revisão Final'")
+#             if st.button("Executar Comando"):
+#                 if comando:
+#                     novo_yaml, mensagem = processar_comando_chat(comando, st.session_state.processo_yaml_str)
+#                     st.session_state.processo_yaml_str = novo_yaml
+#                     st.success(mensagem) if "✅" in mensagem else st.warning(mensagem)
+#                     st.experimental_rerun()
+#         with col2:
+#             st.subheader("Visualizador BPMN e Artefatos")
+#             try:
+#                 processo_yaml_obj = yaml.safe_load(st.session_state.processo_yaml_str)
+#                 modelo_xml = gerar_modelo_bpmn_xml_com_lanes("campanha_natura", processo_yaml_obj)
+#                 componente_html = renderizar_bpmn_com_js(modelo_xml)
+#                 st.components.v1.html(componente_html, height=550, scrolling=False)
+#                 st.download_button(label="📥 Baixar Modelo (.bpmn)", data=modelo_xml, file_name="processo_final.bpmn", mime="application/xml")
+#                 with st.expander("Ver código XML"): st.code(modelo_xml, language='xml')
+#             except yaml.YAMLError as e:
+#                 st.error(f"Erro na sintaxe do YAML: {e}")
+
+
+
+
+
+# import streamlit as st
+# import pandas as pd
+# import yaml
+# import re
+# from io import StringIO
+# import base64
+
+# # ==============================================================================
+# # DADOS SINTÉTICOS E EXEMPLO YAML (CARREGADOS NA INICIALIZAÇÃO)
+# # ==============================================================================
+# def carregar_dados_iniciais():
+#     """Carrega todos os dados da demonstração na sessão do Streamlit."""
+#     if 'df_perfis' not in st.session_state:
+#         csv_data = """id_consultora,nome_consultora,regiao,nivel_consultora,meses_de_casa,vendas_ultimo_ciclo,taxa_engajamento,categoria_preferida
+# 2001,Ana Silva,Sudeste,Ouro,24,2850.50,92,Perfumaria
+# 2002,Bruno Costa,Nordeste,Prata,12,1550.00,65,Cuidados Diários
+# 2003,Carla Dias,Sudeste,Diamante,36,4100.75,98,Maquegem
+# 2004,Daniel Farias,Norte,Semente,3,450.20,25,Cuidados Diários
+# """
+#         st.session_state['df_perfis'] = pd.read_csv(StringIO(csv_data))
+#     if 'diretrizes_cpb' not in st.session_state:
+#         st.session_state['diretrizes_cpb'] = "Tema do ciclo: Reconexão com a natureza e os sentidos. Mensagem central: 'Redescubra sua essência com Ekos'. Objetivo: Aumentar recompra da linha Ekos em 20%."
+#     if 'insights_anteriores' not in st.session_state:
+#         st.session_state['insights_anteriores'] = "Análise do ciclo anterior: WhatsApp teve conversão 4,7% em recompra. ROI da linha Ekos foi de 5,3x. Consultoras com mais de 3 interações convertem 2,4x mais."
+#     if 'processo_yaml_str' not in st.session_state:
+#         st.session_state.processo_yaml_str = """
+# pools:
+#   pool_ciclo_11:
+#     name: Campanha Ekos Essência da Amazônia
+#     processRef: Process_Ekos
+#     lanes:
+#       lane_estrategia: Estratégia e Análise
+#       lane_ativacao: Ativação de Canais
+#       lane_stakeholders: Validação
+# elements:
+#   - {id: start_ciclo, name: Início do Ciclo 11/2025, type: startEvent, lane: lane_estrategia, content: 'Planejamento de CRM.'}
+#   - {id: task_segmentar, name: Definir Segmentos, type: serviceTask, lane: lane_estrategia, content: 'Cluster 1 (Frequentes) e Cluster 2 (Reativáveis)'}
+#   - {id: gw_paralelo_inicio, name: Iniciar Ativação, type: parallelGateway, lane: lane_ativacao}
+#   - {id: task_app, name: Disparar Push no App, type: serviceTask, lane: lane_ativacao, content: 'Cluster 1 → Mensagem A'}
+#   - {id: task_whatsapp, name: Disparar WhatsApp, type: serviceTask, lane: lane_ativacao, content: 'Cluster 2 → Mensagem B'}
+#   - {id: gw_paralelo_fim, name: Aguardar Disparos, type: parallelGateway, lane: lane_ativacao}
+#   - {id: task_validar, name: Validar com Stakeholders, type: userTask, lane: lane_stakeholders, content: 'Ajuste: Incluir opt-out.'}
+#   - {id: end_campanha, name: Fim do Planejamento, type: endEvent, lane: lane_stakeholders}
+# flows:
+#   - {id: f1, source: start_ciclo, target: task_segmentar}
+#   - {id: f2, source: task_segmentar, target: gw_paralelo_inicio}
+#   - {id: f3, source: gw_paralelo_inicio, target: task_app}
+#   - {id: f4, source: gw_paralelo_inicio, target: task_whatsapp}
+#   - {id: f5, source: task_app, target: gw_paralelo_fim}
+#   - {id: f6, source: task_whatsapp, target: gw_paralelo_fim}
+#   - {id: f7, source: gw_paralelo_fim, target: task_validar}
+#   - {id: f8, source: task_validar, target: end_campanha}
+# """
+
+# # ==============================================================================
+# # FUNÇÕES DOS AGENTES E DE GERAÇÃO
+# # ==============================================================================
+# def simular_organizador_de_contexto(diretrizes, insights):
+#     return f"""
+#     ### Informações de Negócio Relevantes:
+#     * **Tema do ciclo:** {diretrizes.split(".")[0]}.
+#     * **Mensagem central:** {diretrizes.split(".")[1]}.
+#     * **Canal Prioritário (Insight):** {insights.split(".")[0]}.
+#     """
+
+# def simular_especialista_de_dados(df):
+#     media_vendas = df['vendas_ultimo_ciclo'].mean()
+#     media_engajamento = df['taxa_engajamento'].mean()
+#     return f"""
+#     ### Direcional de Performance Detalhado:
+#     * **Média de Vendas (Base Atual):** R$ {media_vendas:.2f}
+#     * **Média de Engajamento (Base Atual):** {media_engajamento:.1f}%
+#     """
+
+# def gerar_modelo_bpmn_xml_com_lanes(id_campanha, processo_yaml):
+#     # Função de geração de XML (sem alterações)
+#     collaboration_id = f"Collaboration_{id_campanha}"; xml_parts = [
+#         '<?xml version="1.0" encoding="UTF-8"?>',
+#         '<bpmn:definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">',
+#         f'  <bpmn:collaboration id="{collaboration_id}">'
+#     ]
+#     main_process_id = ""
+#     for pool_id, pool_data in processo_yaml.get('pools', {}).items():
+#         process_ref = pool_data['processRef'];
+#         if not main_process_id: main_process_id = process_ref
+#         xml_parts.append(f'    <bpmn:participant id="{pool_id}" name="{pool_data["name"]}" processRef="{process_ref}" />')
+#     xml_parts.append('  </bpmn:collaboration>')
+#     for pool_id, pool_data in processo_yaml.get('pools', {}).items():
+#         process_id = pool_data['processRef']
+#         xml_parts.append(f'  <bpmn:process id="{process_id}" isExecutable="true">'); xml_parts.append('      <bpmn:laneSet>')
+#         for lane_id, lane_name in pool_data.get('lanes', {}).items():
+#             xml_parts.append(f'        <bpmn:lane id="{lane_id}" name="{lane_name}">')
+#             for el in processo_yaml.get('elements', []):
+#                 if el['lane'] == lane_id: xml_parts.append(f'          <bpmn:flowNodeRef>{el["id"]}</bpmn:flowNodeRef>')
+#             xml_parts.append('        </bpmn:lane>')
+#         xml_parts.append('      </bpmn:laneSet>')
+#         for el in processo_yaml.get('elements', []):
+#             if el['lane'] in pool_data.get('lanes', {}):
+#                 el_id, el_name, el_type = el['id'], el['name'], el.get('type', 'task')
+#                 doc_text = el.get('content', ''); doc_xml = f'<bpmn:documentation>{doc_text}</bpmn:documentation>' if doc_text else ''
+#                 tag = el_type if 'Task' in el_type or 'Gateway' in el_type or 'Event' in el_type else 'task'
+#                 xml_parts.append(f'    <bpmn:{tag} id="{el_id}" name="{el_name}">{doc_xml}</bpmn:{tag}>')
+#         for flow in processo_yaml.get('flows', []): xml_parts.append(f'    <bpmn:sequenceFlow id="{flow["id"]}" name="{flow.get("name", "")}" sourceRef="{flow["source"]}" targetRef="{flow["target"]}" />')
+#         xml_parts.append('  </bpmn:process>')
+#     xml_parts.append(f'<bpmndi:BPMNDiagram id="BPMNDiagram_1"><bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="{collaboration_id}"></bpmndi:BPMNPlane></bpmndi:BPMNDiagram>')
+#     xml_parts.append('</bpmn:definitions>')
+#     return '\n'.join(xml_parts)
+
+# def renderizar_bpmn_com_js(bpmn_xml_string):
+#     escaped_bpmn_xml = bpmn_xml_string.replace("`", "\\`").replace("'", "\\'").replace("\n", " ")
+#     html_content = f"""
+#     <!DOCTYPE html><html><head><title>BPMN Viewer</title><script src="https://unpkg.com/bpmn-js@17.0.2/dist/bpmn-viewer.development.js"></script><style>html,body,#container{{height:100%;width:100%;margin:0;padding:0}}#container{{height:calc(100% - 40px);width:100%}}#export-button-wrapper{{height:40px;text-align:right;padding:5px;background-color:#f7f7f7;border-top:1px solid #ddd}}.bjs-powered-by{{display:none !important}}button{{background-color:#1976D2;color:white;border:none;padding:8px 12px;border-radius:4px;cursor:pointer;font-family:sans-serif}}button:hover{{background-color:#1565C0}}</style></head><body><div id="container"></div><div id="export-button-wrapper"><button id="save-svg">Exportar como Imagem (SVG)</button></div><script>
+#         var viewer = new BpmnJS({{container:'#container'}}); var bpmnXML=`{escaped_bpmn_xml}`;
+#         async function openDiagram(xml){{try{{await viewer.importXML(xml);viewer.get('canvas').zoom('fit-viewport','auto')}}catch(err){{console.error(err)}}}}
+#         async function exportSVG(){{try{{const{{svg}}=await viewer.saveSVG();const encodedData=encodeURIComponent(svg);const link=document.createElement('a');link.href='data:image/svg+xml;charset=UTF-8,'+encodedData;link.download='diagrama_bpmn.svg';document.body.appendChild(link);link.click();document.body.removeChild(link)}}catch(err){{console.error(err)}}}}
+#         document.getElementById('save-svg').addEventListener('click',exportSVG);openDiagram(bpmnXML);
+#     </script></body></html>"""
+#     return html_content
+
+# def processar_comando_chat(comando, yaml_str):
+#     try:
+#         data = yaml.safe_load(yaml_str); comando = comando.lower()
+#         match_nome = re.search(r"mude o nome da tarefa '(.+?)' para '(.+?)'", comando)
+#         if match_nome:
+#             id_tarefa, novo_nome = match_nome.groups();
+#             for el in data.get('elements', []):
+#                 if el['id'] == id_tarefa: el['name'] = novo_nome;
+#             return yaml.dump(data, sort_keys=False, indent=2), f"✅ Nome da tarefa '{id_tarefa}' alterado."
+#         return yaml_str, "❌ Comando não reconhecido."
+#     except yaml.YAMLError as e: return yaml_str, f"❌ Erro no formato do YAML: {e}"
+
+# # ==============================================================================
+# # INTERFACE DA APLICAÇÃO
+# # ==============================================================================
+# st.set_page_config(layout="wide")
+# st.title("Assistente de Planejamento de Campanhas CRM")
+
+# carregar_dados_iniciais()
+
+# tab1, tab2, tab3 = st.tabs(["**📊 Fase 1: Dados e Contexto**", "**⚙️ Fase 2: Análise e Segmentação**", "**✍️ Fase 3: Modelagem e Artefatos**"])
+
+# with tab1:
+#     st.header("Entrada de Dados da Campanha")
+#     col1, col2 = st.columns(2)
+#     with col1:
+#         st.subheader("Dados Estruturados")
+#         uploaded_file = st.file_uploader("Carregar arquivo de Consultoras (CSV)", type="csv")
+#         if uploaded_file is not None:
+#             try:
+#                 st.session_state['df_perfis'] = pd.read_csv(uploaded_file)
+#                 st.success("Novo arquivo carregado com sucesso!")
+#             except Exception as e:
+#                 st.error(f"Erro ao ler o arquivo: {e}")
+#         st.info("Amostra dos Dados Atuais")
+#         st.dataframe(st.session_state['df_perfis'])
+#     with col2:
+#         st.subheader("Dados Não Estruturados")
+#         st.text_area("Diretrizes da Campanha (CPB):", value=st.session_state['diretrizes_cpb'], height=120, key='diretrizes_cpb')
+#         st.text_area("Insights de Ciclos Anteriores:", value=st.session_state['insights_anteriores'], height=120, key='insights_anteriores')
+
+# with tab2:
+#     st.header("Execução dos Agentes e Segmentação de Público")
+#     if 'df_perfis' not in st.session_state:
+#         st.warning("Por favor, carregue os dados na Fase 1 primeiro.")
+#     else:
+#         st.subheader("Resultados dos Agentes de Análise")
+#         with st.expander("🤖 Agente: Organizador de Contexto", expanded=True):
+#             st.markdown(simular_organizador_de_contexto(st.session_state.diretrizes_cpb, st.session_state.insights_anteriores))
+#         with st.expander("🤖 Agente: Especialista de Dados", expanded=True):
+#             st.markdown(simular_especialista_de_dados(st.session_state.df_perfis))
+        
+#         st.divider()
+#         st.subheader("🎯 Agente: Seletor de Público Interativo")
+#         df_para_filtrar = st.session_state.df_perfis.copy()
+#         col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+#         with col_filtro1:
+#             regioes_selecionadas = st.multiselect("Filtrar por Região:", df_para_filtrar['regiao'].unique(), default=df_para_filtrar['regiao'].unique())
+#         with col_filtro2:
+#             niveis_selecionados = st.multiselect("Filtrar por Nível:", df_para_filtrar['nivel_consultora'].unique(), default=df_para_filtrar['nivel_consultora'].unique())
+#         with col_filtro3:
+#             max_vendas = int(df_para_filtrar['vendas_ultimo_ciclo'].max()) if not df_para_filtrar.empty else 1000
+#             filtro_vendas = st.slider("Filtrar por Vendas (R$):", 0, max_vendas, (0, max_vendas))
+#         df_filtrado = df_para_filtrar[(df_para_filtrar['regiao'].isin(regioes_selecionadas)) & (df_para_filtrar['nivel_consultora'].isin(niveis_selecionados)) & (df_para_filtrar['vendas_ultimo_ciclo'].between(filtro_vendas[0], filtro_vendas[1]))]
+#         st.metric(label="Total de Pessoas no Segmento", value=len(df_filtrado))
+#         st.dataframe(df_filtrado)
+#         if st.button("💾 Salvar Segmentação e Avançar"):
+#             st.session_state['df_segmentado'] = df_filtrado
+#             st.success(f"{len(df_filtrado)} consultoras foram salvas. Prossiga para a Fase 3.")
+
+# # ##############################################################################
+# # ATUALIZAÇÃO PRINCIPAL: Fase 3 agora contém o editor, o chat e o visualizador
+# # ##############################################################################
+# with tab3:
+#     st.header("Modelagem do Processo e Geração de Artefatos")
+#     if 'df_segmentado' not in st.session_state:
+#         st.warning("Por favor, crie e salve um segmento na Fase 2 primeiro.")
+#     else:
+#         st.success(f"Modelando a estratégia para o segmento de **{len(st.session_state['df_segmentado'])}** consultoras.")
+        
+#         col1, col2 = st.columns([2, 3])
+#         with col1:
+#             st.subheader("Definição do Processo (YAML)")
+#             yaml_editor = st.text_area("Edite o processo:", value=st.session_state.processo_yaml_str, height=500, key="yaml_editor_main")
+#             st.session_state.processo_yaml_str = yaml_editor
+            
+#             # --- CHAT INTERATIVO RESTAURADO ---
+#             st.subheader("💬 Chat de Refinamento")
+#             comando = st.text_input("Seu comando:", placeholder="mude o nome da tarefa 'task_validar' para 'Revisão Final'")
+#             if st.button("Executar Comando"):
+#                 if comando:
+#                     novo_yaml, mensagem = processar_comando_chat(comando, st.session_state.processo_yaml_str)
+#                     st.session_state.processo_yaml_str = novo_yaml
+#                     st.success(mensagem) if "✅" in mensagem else st.warning(mensagem)
+#                     st.experimental_rerun()
+
+#         with col2:
+#             st.subheader("Visualizador BPMN e Artefatos")
+#             try:
+#                 processo_yaml_obj = yaml.safe_load(st.session_state.processo_yaml_str)
+#                 modelo_xml = gerar_modelo_bpmn_xml_com_lanes("campanha_natura", processo_yaml_obj)
+#                 componente_html = renderizar_bpmn_com_js(modelo_xml)
+#                 st.components.v1.html(componente_html, height=550, scrolling=False)
+                
+#                 st.download_button(label="📥 Baixar Modelo (.bpmn)", data=modelo_xml, file_name="processo_final.bpmn", mime="application/xml")
+#                 with st.expander("Ver código XML do modelo"):
+#                     st.code(modelo_xml, language='xml')
+
+#             except yaml.YAMLError as e:
+#                 st.error(f"Erro na sintaxe do YAML: {e}")
